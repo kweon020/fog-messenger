@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d0f12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="fog">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>fog 메신저</title>
+<style>
+:root{color-scheme:dark;--bg:#0d0f12;--ink:#f4f1ec;--mut:rgba(244,241,236,.6);--line:rgba(255,255,255,.12);--frost:rgba(255,255,255,.14);--edge:rgba(255,255,255,.38)}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
+[hidden]{display:none!important}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+.center{align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;background:radial-gradient(ellipse at 50% 40%,#3a3f46 0%,#16191d 60%,#0b0c0e 100%)}
+.logo{font:300 88px/1 Georgia,"Times New Roman",serif;letter-spacing:.06em;color:rgba(255,255,255,.88);text-shadow:0 0 40px rgba(255,255,255,.35)}
+.muted{color:var(--mut);font-size:13px}
+.pad{padding:28px 20px}
+#nameInput{width:min(280px,80vw);padding:12px 16px;border-radius:999px;border:1px solid var(--edge);background:rgba(255,255,255,.08);color:#fff;font:inherit;font-size:16px;text-align:center;outline:none;-webkit-user-select:text;user-select:text}
+.btn,.chip,.fab{appearance:none;font:inherit;color:#fff;cursor:pointer;border:1px solid var(--edge);background:var(--frost);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-radius:999px;white-space:nowrap}
+.btn{padding:12px 36px;font-size:16px}
+.chip{padding:6px 14px;font-size:13px}
+.btn:disabled,.chip:disabled{opacity:.55}
+.bar{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.bar>h2 small{font:12px system-ui;letter-spacing:0;margin-left:6px;vertical-align:middle}
+.bar>h2{font:400 22px Georgia,serif;letter-spacing:.05em;flex:1}
+.grow{flex:1;min-width:0}
+.grow h2{font-size:16px;font-weight:600;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.icon{appearance:none;border:0;background:none;color:#fff;font-size:26px;line-height:1;width:36px;height:36px;cursor:pointer;flex:none}
+.list{list-style:none;overflow-y:auto;flex:1;padding-bottom:110px}
+.row{padding:14px 20px;border-bottom:1px solid var(--line);cursor:pointer}
+.row .title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fab{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));padding:13px 22px;font-size:15px;z-index:3}
+.msgs{list-style:none;overflow-y:auto;flex:1;padding:16px 14px 120px;display:flex;flex-direction:column;gap:16px}
+.msg{align-self:flex-start;cursor:pointer}
+.msg.mine{align-self:flex-end}
+.thumb{width:132px;aspect-ratio:9/16;border-radius:16px;overflow:hidden;background:linear-gradient(160deg,#59606a,#1d2025);border:1px solid var(--line)}
+.thumb img{width:100%;height:100%;display:block;filter:blur(1px)}
+.msg small{display:block;margin-top:4px;color:var(--mut);font-size:12px}
+.msg.mine small{text-align:right}
+.stagewrap{background:#000;align-items:center;justify-content:center;padding:0}
+.stage{display:block;touch-action:none}
+.top{position:fixed;top:calc(10px + env(safe-area-inset-top));left:10px;right:12px;display:flex;align-items:center;gap:8px;z-index:3}
+.hint{font-size:13px;color:#fff;text-shadow:0 1px 8px rgba(0,0,0,.7);transition:opacity .8s}
+.bottom{position:fixed;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));z-index:3;pointer-events:none}
+.bottom>*{pointer-events:auto}
+.pill{position:absolute;left:16px;bottom:0;display:flex;align-items:center;gap:10px;padding:9px 16px;border-radius:999px;background:var(--frost);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--edge)}
+.pill span{color:#fff;font-size:13px;letter-spacing:.04em;text-transform:lowercase}
+.pill input{width:90px;accent-color:#fff}
+.right{position:absolute;right:16px;bottom:0;display:flex;gap:8px}
+.chip.send{background:rgba(255,255,255,.88);color:#111;font-weight:600}
+.rec{position:absolute;left:50%;bottom:62px;transform:translateX(-50%);width:74px;height:74px;border-radius:50%;border:0;cursor:pointer;background:conic-gradient(#fff calc(var(--p,1)*1turn),rgba(255,255,255,.25) 0)}
+.rec::after{content:"";position:absolute;inset:6px;border-radius:50%;background:#ff4d4d;border:4px solid #000;transition:inset .2s,border-radius .2s}
+.rec.on::after{inset:20px;border-radius:8px}
+.vsrc{position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+#toast{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top));transform:translate(-50%,-80px);max-width:90vw;z-index:50;padding:9px 16px;border-radius:14px;background:rgba(30,32,36,.88);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--edge);font-size:13px;transition:transform .3s}
+#toast.on{transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<section id="s-boot" class="screen center"><h1 class="logo">fog</h1><p id="bootMsg" class="muted"></p></section>
+
+<section id="s-name" class="screen center" hidden>
+  <h1 class="logo">fog</h1>
+  <p id="nameHint" class="muted">김 서린 거울에 손글씨로 주고받는 메시지</p>
+  <input id="nameInput" maxlength="12" placeholder="닉네임" autocomplete="nickname">
+  <button id="nameGo" class="btn">시작</button>
+</section>
+
+<section id="s-rooms" class="screen" hidden>
+  <header class="bar"><h2>fog <small id="demoTag" class="muted" hidden>demo</small></h2><button id="pushBtn" class="chip">알림 켜기</button></header>
+  <ul id="roomList" class="list"></ul>
+  <p id="roomsEmpty" class="muted pad" hidden>아직 방이 없어요. 새 방을 만들고 친구를 초대해 보세요. (방마다 최대 8명)</p>
+  <button id="newRoom" class="fab">＋ 새 방</button>
+</section>
+
+<section id="s-room" class="screen" hidden>
+  <header class="bar">
+    <button id="roomBack" class="icon" aria-label="뒤로">‹</button>
+    <div class="grow"><h2 id="roomTitle"></h2><small id="roomCount" class="muted"></small></div>
+    <button id="inviteBtn" class="chip">초대</button>
+    <button id="leaveBtn" class="chip">나가기</button>
+  </header>
+  <ul id="msgList" class="msgs"></ul>
+  <button id="composeBtn" class="fab">✦ 김 서린 메시지</button>
+</section>
+
+<section id="s-compose" class="screen stagewrap" hidden>
+  <canvas id="cCanvas" class="stage"></canvas>
+  <div class="top"><button id="cClose" class="icon" aria-label="닫기">✕</button><span id="cHint" class="hint"></span></div>
+  <div class="bottom">
+    <button id="recBtn" class="rec" aria-label="4초 촬영"></button>
+    <label class="pill"><span>brush</span><input id="brush" type="range" min="7" max="38" value="15"></label>
+    <div class="right">
+      <button id="fogHold" class="chip">꾹 눌러 김</button>
+      <button id="retakeBtn" class="chip" hidden>다시</button>
+      <button id="sendBtn" class="chip send" hidden>보내기</button>
+    </div>
+  </div>
+</section>
+
+<section id="s-view" class="screen stagewrap" hidden>
+  <canvas id="vCanvas" class="stage"></canvas>
+  <div class="top"><button id="vClose" class="icon" aria-label="닫기">✕</button><span id="vHint" class="hint">문질러서 확인하세요</span></div>
+</section>
+
+<div id="toast"></div>
+<video id="camVideo" class="vsrc" playsinline muted autoplay></video>
+<video id="clipVideo" class="vsrc" playsinline muted loop></video>
+<video id="viewVideo" class="vsrc" playsinline muted loop></video>
+
+<script src="firebase-config.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
