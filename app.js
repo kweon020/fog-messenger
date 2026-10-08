@@ -12,7 +12,7 @@ addEventListener('unhandledrejection', e => toast('오류: ' + ((e.reason && e.r
 function show(id) { for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== id; }
 const fmt = ms => ms ? new Date(ms).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '방금';
 const IN_APP = navigator.userAgent.includes('FogApp');
-const MAX_MEMBERS = 8, REC_MS = 4000;
+const MAX_MEMBERS = 8;
 const me = { uid: null, name: '' };
 function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } return null; }
 
@@ -29,7 +29,7 @@ function resizeKeep(c, W, H) {
   c.width = W; c.height = H; c.getContext('2d').drawImage(t, 0, 0, W, H);
 }
 function cover(video, w, h) {
-  const vw = video.videoWidth || 720, vh = video.videoHeight || 1280, s = Math.max(w / vw, h / vh);
+  const vw = video.videoWidth || video.naturalWidth || video.width || 720, vh = video.videoHeight || video.naturalHeight || video.height || 1280, s = Math.max(w / vw, h / vh);
   return { dw: vw * s, dh: vh * s, ox: (w - vw * s) / 2, oy: (h - vh * s) / 2 };
 }
 function drawMirrored(x, video, w, h, pad) {
@@ -56,7 +56,7 @@ class Stage {
     this.smC.width = Math.max(1, Math.round(W / 4)); this.smC.height = Math.max(1, Math.round(H / 4));
   }
   render(video, fog) {
-    const { W, H, dpr } = this, b = BLUR * dpr / 4, ready = video.readyState >= 2;
+    const { W, H, dpr } = this, b = BLUR * dpr / 4, ready = video.readyState === undefined || video.readyState >= 2;
     if (ready) {
       this.smX.filter = `blur(${b}px) brightness(${BRIGHT})`;
       this.smX.clearRect(0, 0, this.smC.width, this.smC.height);
@@ -96,7 +96,16 @@ function synthStream(skin) {
   function draw(now) {
     if (!on) return;
     requestAnimationFrame(draw);
-    const t = (now - t0) / 1000;
+    paintFace(x, (now - t0) / 1000, skin);
+  }
+  requestAnimationFrame(draw);
+  const s = c.captureStream(30);
+  s.stopSynth = () => { on = false; for (const tr of s.getTracks()) tr.stop(); };
+  return s;
+}
+function synthPhoto(skin) { const [c, x] = mk(); c.width = 360; c.height = 640; paintFace(x, 1.7, skin); return c; }
+function paintFace(x, t, skin) {
+  {
     x.fillStyle = '#c9d3d8'; x.fillRect(0, 0, 360, 640);
     x.strokeStyle = 'rgba(110,130,140,.45)'; x.lineWidth = 2;
     for (let i = 0; i <= 360; i += 45) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 640); x.stroke(); }
@@ -112,10 +121,6 @@ function synthStream(skin) {
     x.beginPath(); x.ellipse(hx - 24, hy - 5, 6, 7 * blink, 0, 0, Math.PI * 2); x.ellipse(hx + 24, hy - 5, 6, 7 * blink, 0, 0, Math.PI * 2); x.fill();
     x.strokeStyle = '#2b2522'; x.lineWidth = 4; x.beginPath(); x.arc(hx, hy + 26, 20, 0.15 * Math.PI, 0.85 * Math.PI); x.stroke();
   }
-  requestAnimationFrame(draw);
-  const s = c.captureStream(30);
-  s.stopSynth = () => { on = false; for (const tr of s.getTracks()) tr.stop(); };
-  return s;
 }
 function textMask(text) { // a fogged mirror with words wiped out of it
   const [m, x] = mk(); m.width = 270; m.height = 480;
@@ -169,14 +174,13 @@ async function firebaseApi() {
     leaveRoom: id => updateDoc(doc(db, 'rooms', id), { members: arrayRemove(me.uid) }),
     watchRoom: (id, cb, err) => onSnapshot(doc(db, 'rooms', id), s => cb(s.exists() ? { id, members: s.data().members, lastAt: ms(s.data().lastAt) } : null), err),
     watchMessages: (id, cb, err) => onSnapshot(query(collection(db, 'rooms', id, 'messages'), orderBy('createdAt', 'desc'), limit(50)),
-      s => cb(s.docs.map(d => ({ id: d.id, from: d.data().from, at: ms(d.data().createdAt), mask: d.data().mask, video: d.data().video })).reverse()), err),
+      s => cb(s.docs.map(d => ({ id: d.id, from: d.data().from, at: ms(d.data().createdAt), mask: d.data().mask, photo: d.data().photo })).reverse()), err),
     async send(roomId, blob, mask) {
       const mref = doc(collection(db, 'rooms', roomId, 'messages'));
-      const type = (blob.type || 'video/webm').split(';')[0];
-      const path = `rooms/${roomId}/${mref.id}.${type.includes('mp4') ? 'mp4' : 'webm'}`;
-      await S.uploadBytes(S.ref(storage, path), blob, { contentType: type });
-      const video = await S.getDownloadURL(S.ref(storage, path));
-      await setDoc(mref, { from: me.uid, createdAt: serverTimestamp(), video, mask });
+      const path = `rooms/${roomId}/${mref.id}.jpg`;
+      await S.uploadBytes(S.ref(storage, path), blob, { contentType: 'image/jpeg' });
+      const photo = await S.getDownloadURL(S.ref(storage, path));
+      await setDoc(mref, { from: me.uid, createdAt: serverTimestamp(), photo, mask });
       await updateDoc(doc(db, 'rooms', roomId), { lastAt: serverTimestamp(), lastFrom: me.uid });
     },
     inviteUrl: id => `${self.FOG_PUBLIC_URL || location.origin + location.pathname.replace(/[^/]*$/, '')}?join=${id}`,
@@ -213,7 +217,7 @@ function demoApi() {
     emitRooms();
   };
   const add = (id, m) => { msgs.get(id).push(m); rooms.get(id).lastAt = m.at; emit(id); };
-  const botSay = (id, text) => add(id, { id: 'm' + Math.random(), from: BOT, at: Date.now(), mask: textMask(text), video: 'synth:bot' });
+  const botSay = (id, text) => add(id, { id: 'm' + Math.random(), from: BOT, at: Date.now(), mask: textMask(text), photo: 'synth:bot' });
   const newRoom = () => {
     const id = 'demo' + (rooms.size + 1);
     rooms.set(id, { id, members: [me.uid, BOT], lastAt: Date.now() }); msgs.set(id, []);
@@ -232,7 +236,7 @@ function demoApi() {
     watchRoom(id, cb) { const u = sub(L.room, id, cb); cb(rooms.get(id) || null); return u; },
     watchMessages(id, cb) { const u = sub(L.msgs, id, cb); cb([...(msgs.get(id) || [])]); return u; },
     async send(id, blob, mask) {
-      add(id, { id: 'm' + Math.random(), from: me.uid, at: Date.now(), mask, video: URL.createObjectURL(blob) });
+      add(id, { id: 'm' + Math.random(), from: me.uid, at: Date.now(), mask, photo: URL.createObjectURL(blob) });
       setTimeout(() => { if (rooms.has(id)) botSay(id, REPLIES[Math.floor(Math.random() * REPLIES.length)]); }, 2500);
     },
     inviteUrl: null,
@@ -358,10 +362,9 @@ $('leaveBtn').onclick = async () => { // tap twice, no blocking dialogs
 // ───────── compose: record 4s, write on the fog, send ─────────
 const cStage = new Stage($('cCanvas'));
 const [cFog, cFogX] = mk();
-const camVideo = $('camVideo'), clipVideo = $('clipVideo');
-let cOn = false, camStream = null, clipBlob = null, clipURL = null, recorder = null;
+const camVideo = $('camVideo');
+let cOn = false, camStream = null, photo = null;
 let holding = false, drawing = false, lastPt = null, lastMid = null, brushR = 15, cFrame = 0, usingSynth = false;
-const MIMES = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
 
 // breath (mic)
 let lastKey = -1e9;
@@ -397,9 +400,9 @@ function resetComposeFog() {
   cFogX.fillStyle = `rgba(255,255,255,${FOG_START})`; cFogX.fillRect(0, 0, cFog.width, cFog.height);
 }
 function composeUI() {
-  $('recBtn').hidden = true; $('retakeBtn').hidden = false; $('sendBtn').hidden = false;
-  $('retakeBtn').textContent = '지우기';
-  $('cHint').textContent = '● 실시간 · 입김으로 김을 서리게 하고, 손가락으로 써서 보내세요';
+  $('recBtn').hidden = !!photo; $('retakeBtn').hidden = $('sendBtn').hidden = !photo;
+  $('retakeBtn').textContent = '다시 찍기';
+  $('cHint').textContent = photo ? '손가락으로 사진 위에 글씨를 써보세요' : '입김으로 김을 서리게 하고 ● 를 눌러 사진을 찍어요';
 }
 async function startCam() {
   try {
@@ -421,21 +424,16 @@ $('composeBtn').onclick = async () => {
   breath.actx = new (window.AudioContext || window.webkitAudioContext)(); // created inside the tap
   show('s-compose');
   cStage.layout(); resizeKeep(cFog, cStage.W, cStage.H); resetComposeFog();
-  composeUI(); prevBlob = null; $('sendBtn').disabled = false; $('sendBtn').textContent = '보내기';
+  photo = null; composeUI(); $('sendBtn').disabled = false; $('sendBtn').textContent = '보내기';
   cOn = true; requestAnimationFrame(cLoop);
   await startCam();
-  startSeg();
   try { await startMic(); }
   catch (e) { $('cHint').textContent = '마이크를 쓸 수 없어요 — 「꾹 눌러 김」으로 김을 서리게 하세요'; }
 };
 function closeCompose() {
   cOn = false; drawing = false; holding = false;
-  if (recorder && recorder.state !== 'inactive') recorder.stop();
-  recorder = null; prevBlob = null;
   stopCam(); stopMic();
-  clipVideo.pause(); clipVideo.removeAttribute('src'); clipVideo.load();
-  if (clipURL) URL.revokeObjectURL(clipURL);
-  clipURL = null; clipBlob = null;
+  photo = null;
   show(curRoom ? 's-room' : 's-rooms');
 }
 $('cClose').onclick = closeCompose;
@@ -456,8 +454,7 @@ function cLoop(now) {
   cFrame++;
   const s = Math.max(breathStrength(now), holding ? 1 : 0);
   if (!drawing && s > 0 && cFrame % 2 === 0) breathe(s);
-  if (recorder && !rolling && now - segStart > MAX_SEG) rollSeg();
-  cStage.render(camVideo, cFog);
+  cStage.render(photo || camVideo, cFog);
 }
 
 // finger drawing = subtracting from the fog
@@ -493,40 +490,28 @@ fh.addEventListener('pointerdown', e => { e.preventDefault(); holding = true; })
 for (const t of ['pointerup', 'pointercancel', 'pointerleave']) fh.addEventListener(t, () => { holding = false; });
 fh.addEventListener('contextmenu', e => e.preventDefault());
 
-// live recording: always rolling while the screen is open; send takes what was just recorded
-const MAX_SEG = 15000, MIN_SEG = 2000;
-let segStart = 0, prevBlob = null, rolling = false;
-function startSeg() {
-  if (!window.MediaRecorder) { toast('이 브라우저는 영상 녹화를 지원하지 않아요'); $('sendBtn').disabled = true; return; }
-  const mime = MIMES.find(m => MediaRecorder.isTypeSupported(m));
-  const opts = { videoBitsPerSecond: 1200000 }; if (mime) opts.mimeType = mime;
-  const r = new MediaRecorder(camStream, opts), chunks = [];
-  r.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
-  r.done = new Promise(res => { r.onstop = () => res(new Blob(chunks, { type: r.mimeType || mime || 'video/webm' })); });
-  r.start();
-  recorder = r; segStart = performance.now();
-}
-function stopRec(r) { if (r.state !== 'inactive') r.stop(); return r.done; }
-async function rollSeg() { // past 15s: keep the finished piece in case send comes right after the restart
-  rolling = true;
-  const old = recorder; startSeg();
-  prevBlob = await stopRec(old);
-  rolling = false;
-}
-$('retakeBtn').onclick = () => { resetComposeFog(); };
+// shutter: freeze the current camera frame and write on it
+$('recBtn').onclick = () => {
+  if (photo || camVideo.readyState < 2) return;
+  const vw = camVideo.videoWidth, vh = camVideo.videoHeight, k = Math.min(1, 1280 / Math.max(vw, vh));
+  const [c, x] = mk(); c.width = Math.round(vw * k); c.height = Math.round(vh * k);
+  x.drawImage(camVideo, 0, 0, c.width, c.height);
+  photo = c; stopCam(); composeUI();
+  const f = $('cFlash'); f.style.transition = 'none'; f.style.opacity = '0.7';
+  requestAnimationFrame(() => { f.style.transition = 'opacity .35s'; f.style.opacity = '0'; });
+};
+$('retakeBtn').onclick = async () => { photo = null; composeUI(); await startCam(); };
 function makeMask() { // the fog itself travels with the message as a small PNG
   const [m, mx] = mk(); m.width = 270; m.height = 480;
   mx.drawImage(cFog, 0, 0, 270, 480);
   return m.toDataURL('image/png');
 }
 $('sendBtn').onclick = async () => {
-  if (!recorder || !curRoom) return;
+  if (!photo || !curRoom) return;
   const btn = $('sendBtn'); btn.disabled = true; btn.textContent = '보내는 중…';
   try {
-    const mask = makeMask(), room = curRoom, r = recorder, short = performance.now() - segStart < MIN_SEG;
-    recorder = null;
-    let blob = await stopRec(r);
-    if (short && prevBlob) blob = prevBlob;
+    const mask = makeMask(), room = curRoom;
+    const blob = await new Promise(r => photo.toBlob(r, 'image/jpeg', 0.85));
     await api.send(room, blob, mask);
     closeCompose();
     toast('보냈어요 ✦');
@@ -539,8 +524,9 @@ $('sendBtn').onclick = async () => {
 // ───────── view: arrives fogged, wipe to read, fogs back ─────────
 const vStage = new Stage($('vCanvas'));
 const [vSend, vSendX] = mk(), [vArr, vArrX] = mk(), [vComb, vCombX] = mk();
-const viewVideo = $('viewVideo');
-let vOn = false, vImg = null, vSynth = null, touching = false, lastTouch = 0, wLast = null, wAcc = 0;
+const NONE = { readyState: 0 };
+let vSrc = NONE;
+let vOn = false, vImg = null, touching = false, lastTouch = 0, wLast = null, wAcc = 0;
 
 function vSizes() {
   vStage.layout();
@@ -550,7 +536,7 @@ function vSizes() {
 async function openView(m) {
   show('s-view');
   $('vHint').style.opacity = '1';
-  vImg = null; vSizes();
+  vImg = null; vSrc = NONE; vSizes();
   vArrX.globalCompositeOperation = 'source-over';
   vArrX.clearRect(0, 0, vArr.width, vArr.height);
   vArrX.fillStyle = 'rgba(255,255,255,0.92)'; vArrX.fillRect(0, 0, vArr.width, vArr.height);
@@ -559,15 +545,12 @@ async function openView(m) {
   requestAnimationFrame(vLoop);
   const img = new Image(); img.src = m.mask; await img.decode();
   vImg = img; vSizes();
-  if (m.video.startsWith('synth:')) { vSynth = synthStream('#c99a78'); viewVideo.srcObject = vSynth; }
-  else viewVideo.src = m.video;
-  await viewVideo.play();
+  if (m.photo.startsWith('synth:')) vSrc = synthPhoto('#c99a78');
+  else { const p = new Image(); p.src = m.photo; await p.decode(); vSrc = p; }
 }
 function closeView() {
   vOn = false; touching = false;
-  viewVideo.pause();
-  if (vSynth) { vSynth.stopSynth(); vSynth = null; viewVideo.srcObject = null; }
-  viewVideo.removeAttribute('src'); viewVideo.load();
+  vSrc = NONE;
   show(curRoom ? 's-room' : 's-rooms');
 }
 $('vClose').onclick = closeView;
@@ -579,7 +562,7 @@ function vLoop(now) {
   }
   vCombX.clearRect(0, 0, vComb.width, vComb.height);
   vCombX.drawImage(vSend, 0, 0); vCombX.drawImage(vArr, 0, 0);
-  vStage.render(viewVideo, vComb);
+  vStage.render(vSrc, vComb);
 }
 function wipeTo(cur) { // per distance, capped, jump-guarded
   const r = VIEW_WIPE_R * vStage.dpr;
