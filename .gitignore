@@ -2,3 +2,4 @@ android/build/
 android/debug.keystore
 android/fog.apk
 artifact.html
+android/fog.apk.idsig
