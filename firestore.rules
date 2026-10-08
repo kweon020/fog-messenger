@@ -46,10 +46,10 @@ service cloud.firestore {
         }
         allow read: if signedIn() && isMember();
         allow create: if signedIn() && isMember()
-          && request.resource.data.keys().hasOnly(['from', 'createdAt', 'video', 'mask'])
+          && request.resource.data.keys().hasOnly(['from', 'createdAt', 'photo', 'mask'])
           && request.resource.data.from == request.auth.uid
           && request.resource.data.createdAt == request.time
-          && request.resource.data.video is string
+          && request.resource.data.photo is string
           && request.resource.data.mask is string && request.resource.data.mask.size() < 400000;
       }
     }
